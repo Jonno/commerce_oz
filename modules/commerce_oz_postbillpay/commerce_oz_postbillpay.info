@@ -1,0 +1,14 @@
+name = Commerce Oz PostBillPay
+description = Australia Post PostBillPay integration with Drupal Commerce & Commerce Invoice.
+package = Commerce Oz
+dependencies[] = commerce
+dependencies[] = commerce_ui
+dependencies[] = commerce_invoice
+core = 7.x
+configure = admin/commerce/config/commerce_oz/postbillpay_settings
+
+; Base module files
+files[] = commerce_oz_postbillpay.module
+
+
+

@@ -1,0 +1,408 @@
+<?php
+
+/**
+ * @file
+ * Test environment for Commerce Oz in Drupal Commerce.
+ */
+
+
+/**
+ * Implements hook_menu().
+ */
+function commerce_oz_test_menu() {
+
+
+$items['admin/commerce/orders/commerce_oz/commerce_oz_tests'] = array(
+
+    'title' => t('Commerce Oz Tests'),
+    'description' => t('CommWeb Test'),
+    'page callback' => '_commweb_test_page',
+		'access callback' => 'user_access',
+    'access arguments' => array('administer commerce_oz'),
+    'type' => MENU_LOCAL_TASK,
+    'weight' => -20,
+
+  );
+
+
+  return $items;
+}
+
+function _commweb_test_page() {
+    $viewname = 'commweb_tests'; // use the machine readable name of the view
+    $viewdisplay = 'page'; // use the machine readable name of the display or 'default'
+    return views_embed_view($viewname, $viewdisplay);
+}
+
+/**
+ * Implements hook_views_api().
+ */
+function commerce_oz_test_views_api() {
+  return array(
+    'api' => 3,
+    'path' => drupal_get_path('module', 'commerce_oz_test') . '/includes/views',
+  );
+}
+
+
+/**
+ * Implements hook_action_info()
+ */
+function commerce_oz_test_action_info() {
+  return array(
+      
+     'commerce_oz_delete_order_transaction_action' => array(
+      'type' => 'system',
+      'label' => t('Delete Transactions & Orders'),
+      'configurable' => FALSE,
+    	'vbo_configurable' => FALSE,
+      'hooks' => array('any' => TRUE),
+      'triggers' => array('any'),
+      ),
+      
+  );
+}
+
+/**
+ *
+ * @param $node
+ *   A node object provided by the associated trigger.
+ * @param $context
+ *   Array with the various elements:
+ */
+function commerce_oz_delete_order_transaction_action($node, $context) {
+
+		$order_id = $node->order_id;
+		$transaction_id = $node->transaction_id;
+		
+		$success = commerce_order_delete($order_id);
+		
+		if($success)
+		{
+			drupal_set_message('Deleted Order: ' . $order_id);
+			
+			$success_t = commerce_payment_transaction_delete($transaction_id);
+			
+			if($success_t)
+			{
+				drupal_set_message('Deleted Transaction: ' . $transaction_id);
+			}
+			
+		} else {
+		
+			drupal_set_message('Could not delete Order: ' . $order_id);
+			
+			$success_t = commerce_payment_transaction_delete($transaction_id);
+			
+			if($success_t)
+			{
+				drupal_set_message('Deleted Transaction: ' . $transaction_id);
+			}
+			
+		}
+
+
+}
+
+
+function _commweb_create_test_order_with_products ( $product_ids , $uid) {
+    
+    $order = commerce_order_new ( $uid , 'pending' );
+
+    // Save the order so its ID is assigned.
+    commerce_order_save ( $order );
+
+    $order_wrapper = entity_metadata_wrapper ( 'commerce_order' , $order );
+
+    //add products to order by ids array
+    foreach ( $product_ids as $product_id ) {
+        $product = commerce_product_load ( $product_id );
+
+        // Create a line item with quantity 1 and this product.
+        $line_item = commerce_product_line_item_new ( $product , 1 , $order->order_id );
+
+        // Save the line item to get its ID.
+        commerce_line_item_save ( $line_item );
+
+        // Add the line item to the order using the wrapper.
+        $order_wrapper->commerce_line_items[ ] = $line_item;
+    }
+
+    // Save the order.
+    commerce_order_save ( $order );
+
+    return $order;
+}
+
+/**
+ * Payment method test: _commerce_oz_test_gateway_transactions.
+ *
+ * This is the function that handles the calls to MIGS servers
+ */
+function _commerce_oz_test_gateway_transactions() {
+ 
+ 
+ 	$testdata = array();
+ 	$testcard = array();
+ 	
+ 	//testdata array structures
+ 	
+ 	//$testcard is array of commerce_credit_cards
+ 	
+ 	$testcard['valid_master']['credit_card']['test_name'] = 'Valid Mastercard';
+  $testcard['valid_master']['credit_card']['number'] = '5123456789012346';
+  $testcard['valid_master']['credit_card']['exp_year'] = '2013';
+  $testcard['valid_master']['credit_card']['exp_month'] = '05';
+  $testcard['valid_master']['credit_card']['code'] = '100';
+
+ 	$testcard['valid_visa']['credit_card']['test_name'] = 'Valid Visa';
+  $testcard['valid_visa']['credit_card']['number'] = '4987654321098769';
+  $testcard['valid_visa']['credit_card']['exp_year'] = '2013';
+  $testcard['valid_visa']['credit_card']['exp_month'] = '05';
+  $testcard['valid_visa']['credit_card']['code'] = '100';
+
+ 	$testcard['valid_amex']['credit_card']['test_name'] = 'Valid Amex';
+  $testcard['valid_amex']['credit_card']['number'] = '345678901234564';
+  $testcard['valid_amex']['credit_card']['exp_year'] = '2013';
+  $testcard['valid_amex']['credit_card']['exp_month'] = '05';
+  $testcard['valid_amex']['credit_card']['code'] = '1000';
+
+ 	$testcard['valid_diners']['credit_card']['test_name'] = 'Valid Diners Club';
+  $testcard['valid_diners']['credit_card']['number'] = '30123456789019';
+  $testcard['valid_diners']['credit_card']['exp_year'] = '2013';
+  $testcard['valid_diners']['credit_card']['exp_month'] = '05';
+  $testcard['valid_diners']['credit_card']['code'] = '';
+ 	
+
+
+/*
+	// Expired Card - Master
+  $testdata[10]['test_amount'] = '154';
+  $testdata[10]['expected_result'] = '4';
+  $testdata[10]['commerce_credit_card'] = $testcard['valid_master'];
+
+	// No response - Master
+  $testdata[11]['test_amount'] = '168';
+  $testdata[11]['expected_result'] = '3';
+  $testdata[11]['commerce_credit_card'] = $testcard['valid_master'];
+
+	// Insufficent Credit - Master
+  $testdata[12]['test_amount'] = '151';
+  $testdata[12]['expected_result'] = '5';
+  $testdata[12]['commerce_credit_card'] = $testcard['valid_master'];
+
+*/
+	// Error 1 - Master
+  $testdata[13]['test_amount'] = '110';
+  $testdata[13]['expected_result'] = '1';
+  $testdata[13]['commerce_credit_card'] = $testcard['valid_master'];
+
+
+ 	// Approved - Mastercard
+  $testdata[0]['test_amount'] = '100';
+  $testdata[0]['expected_result'] = '0';
+  $testdata[0]['commerce_credit_card'] = $testcard['valid_master'];
+
+
+ 	// Declined 2 - Master
+  $testdata[8]['test_amount'] = '105';
+  $testdata[8]['expected_result'] = '2';
+  $testdata[8]['commerce_credit_card'] = $testcard['valid_master'];
+
+	// Declined E - Master
+  $testdata[9]['test_amount'] = '101';
+  $testdata[9]['expected_result'] = 'E';
+  $testdata[9]['commerce_credit_card'] = $testcard['valid_master'];
+
+
+
+/*
+
+
+ 	// Approved - Visa
+  $testdata[1]['test_amount'] = '200';
+  $testdata[1]['commerce_credit_card'] = $testcard['valid_visa'];
+
+ 	// Declined 2 - Visa
+  $testdata[3]['test_amount'] = '205';
+  $testdata[3]['commerce_credit_card'] = $testcard['valid_visa'];
+
+
+ 	// Declined E - Visa
+  $testdata[4]['test_amount'] = '201';
+  $testdata[4]['commerce_credit_card'] = $testcard['valid_visa'];
+  
+ 	// No response - Visa
+  $testdata[5]['test_amount'] = '268';
+  $testdata[5]['commerce_credit_card'] = $testcard['valid_visa'];
+
+ 	// Insufficient Credit - Visa
+  $testdata[6]['test_amount'] = '251';
+  $testdata[6]['commerce_credit_card'] = $testcard['valid_visa'];
+
+ 	// Expired Card - Visa
+  $testdata[7]['test_amount'] = '254';
+  $testdata[7]['commerce_credit_card'] = $testcard['valid_visa'];
+
+*/
+
+
+ 	$c = 0;
+
+	foreach($testdata as $test)
+	{
+	
+		$c++;
+		
+		// Create a dummy order
+		$order = _commweb_create_test_order_with_products (array(7) , 1);
+	//	// dsm($order, 'Test ' . $c . ' Order');
+
+		// Prepare a transaction object to log the API response.
+	  $transaction = commerce_payment_transaction_new('commerce_oz', $order->order_id);
+	  
+	   // Save the transaction for a fresh transaction id.
+	  commerce_payment_transaction_save($transaction);
+	  
+	  $request_string = _commweb_build_vpc_request_payload($order, $transaction, $test['commerce_credit_card'], $test['test_amount']);
+	
+	  $request_map = _process_vpc_request($request_string);
+	  
+		// VPC curl function //
+		$response_string = _commerce_oz_post_MIGS_request($request_string);
+		
+		// Process Response Data & Transaction Object
+		$response_map = _process_vpc_response($transaction, $response_string, $request_map, '<strong>TEST_TRANSACTION</strong> <br />');
+	
+	  // Save the transaction information.
+	  commerce_payment_transaction_save($transaction);
+	  
+	 // rules_invoke_event('commerce_oz_transaction_complete', $transaction);
+	 
+	 $expected = $test['expected_result'];
+	 $actual = $response_map['vpc_TxnResponseCode'];
+	  
+	 if ($expected != $actual) 
+  	{	
+  		drupal_set_message('Test ' . $c . '. Test Failed. Card: ' . $test['commerce_credit_card']['credit_card']['test_name'] . ' Expected: ' . $expected . ' Actual Result: ' . $actual . ' Transaction ID: ' .$transaction->transaction_id , 'error');
+  	} else {
+  		drupal_set_message('Test ' . $c . '. Test Succeeded. Card: ' . $test['commerce_credit_card']['credit_card']['test_name'], 'status');
+  	}
+  
+  
+	  
+	}
+}
+
+
+
+/**
+ * Builds a form to redirect to an order's view page.
+ *
+ * @param $redirect_page
+ *   The page to redirect to, either 'admin', 'customer', or 'select' to add a
+ *   widget to the form so the user can specify which page they want.
+ * @param $identifier
+ *   The identifier to use to determine which order should be viewed; either
+ *   'order_number' (the default), 'order_id', or 'select'.
+ */
+function commerce_oz_test_redirect_form($form, &$form_state) {
+ 
+ 	$form['#attached']['css'][] = drupal_get_path('module', 'commerce_order') . '/theme/commerce_order.admin.css';
+
+/*
+  if ($identifier == 'select') {
+    $form['identifier'] = array(
+      '#type' => 'select',
+      '#title' => t('Specify order by', array(), array('context' => 'a drupal commerce order')),
+      '#options' => array(
+        'order_number' => t('Order number', array(), array('context' => 'a drupal commerce order')),
+        'order_id' => t('Order ID', array(), array('context' => 'a drupal commerce order')),
+      ),
+      '#default_value' => 'order_number',
+    );
+
+    $order_title = t('Order', array(), array('context' => 'a drupal commerce order'));
+  }
+  else {
+    $form['identifier'] = array(
+       '#type' => 'value',
+       '#value' => $identifier,
+    );
+
+    if ($identifier == 'order_number') {
+      $order_title = t('Order number', array(), array('context' => 'a drupal commerce order'));
+    }
+    else {
+      $order_title = t('Order ID', array(), array('context' => 'a drupal commerce order'));
+    }
+  }
+
+  $form['order_identifier'] = array(
+    '#type' => 'textfield',
+    '#title' => $order_title,
+    '#size' => 16,
+  );
+
+  $form['order'] = array(
+    '#type' => 'value',
+    '#value' => NULL,
+  );
+
+  if ($redirect_page == 'select') {
+    $form['redirect_page'] = array(
+      '#type' => 'select',
+      '#title' => t('Redirect page'),
+      '#options' => array(
+        'admin' => t('Admin view page'),
+        'customer' => t('Customer view page'),
+      ),
+      '#default_value' => 'admin',
+    );
+  }
+  else {
+    $form['redirect_page'] = array(
+      '#type' => 'value',
+      '#value' => $redirect_page,
+    );
+  }
+*/
+
+	$form['redirect_page'] = array(
+      '#type' => 'select',
+      '#title' => t('Select Tests'),
+      '#options' => array(
+        'all_tests' => t('All Tests'),
+        'card_tests' => t('Card Tests (Approved)'),
+      ),
+      '#default_value' => 'all_tests',
+    );
+
+
+
+  $form['submit'] = array(
+    '#type' => 'submit',
+    '#value' => t('Run Tests'),
+  );
+
+  return $form;
+}
+
+/**
+ * Validate callback: ensure a valid order was specified for viewing.
+ */
+function commerce_oz_test_redirect_form_validate($form, &$form_state) {
+// No Validation
+}
+
+/**
+ * Submit callback: redirect to the appropriate page for the specified order.
+ */
+function commerce_oz_test_redirect_form_submit($form, &$form_state) {
+	
+	$form_state['redirect'] = 'admin/config/development/commweb_tests';
+
+	_commerce_oz_test_gateway_transactions();
+
+}
+

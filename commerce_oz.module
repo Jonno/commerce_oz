@@ -1,0 +1,745 @@
+<?php
+
+/**
+  *  @file
+  *  Implements  CommWeb  Virtual  Payment  Service  for  use  in  Drupal  Commerce.
+  */
+  
+
+define('COMMERCE_OZ_PRODUCT_NAME',  'Commerce  Oz');
+define('COMMERCE_OZ_PRODUCT_KEY',  'commerce_oz');
+define('COMMERCE_OZ_GATEWAY_SETTINGS_VARIABLE',  'commerce_oz_gateway_settings');
+define('COMMERCE_OZ_PAYMENT_METHOD_SETTINGS_VARIABLE',  'commerce_oz_payment_method_settings');
+
+define('COMMERCE_COMMWEB_URL', 'https://migs.mastercard.com.au/vpcdps');
+define('COMMERCE_COMMWEB_3P_URL', 'https://migs.mastercard.com.au/vpcpay');
+define('COMMERCE_COMMWEB_vpc_Version', '1');
+define('COMMERCE_COMMWEB_vpc_Command', 'pay');
+define('COMMERCE_COMMWEB_vpc_Refund_Command', 'refund');
+
+
+/**
+ * Implements hook_menu().
+ */
+function commerce_oz_menu() {
+
+	$items = array();
+
+	// Contextual Link for Refunds
+ $items['admin/commerce/orders/%commerce_order/payment/%commerce_payment_transaction/refund'] = array(
+
+    'title' => t('Refund'),
+    'page callback' => 'commerce_oz_refund_transaction',
+   	'page arguments' => array(3, 5),
+		'access callback' => true,
+    'access callback' => 'commerce_payment_transaction_access',
+    'access arguments' => array('update', 5),
+    'type' => MENU_LOCAL_TASK,
+    'context' => MENU_CONTEXT_INLINE,
+    'file' => 'includes/commerce_oz.refund.admin.inc',
+    'weight' => 20,
+  );
+
+return $items;
+
+}
+
+
+
+
+/**
+ * Implements hook_permission().
+ */
+function commerce_oz_permission() {
+  return array(
+    'administer commerce_oz' => array(
+      'title' => t('Administer Commerce Oz'),
+    ),
+    'refund commerce_oz' => array(
+      'title' => t('Refund Commerce Oz Payments'),
+    ),
+    'view commerce_oz' => array(
+      'title' => t('View Commerce Oz Transactions'),
+    ),
+
+  );
+}
+
+
+/**
+  *  Return  true  if  refundable.
+  */
+function  commerce_oz_transaction_refundable($transaction)
+{
+		
+	return  (
+      //  $transaction->payment_method  ==  'commerce_commweb'
+      	!isset($transaction->payload['refunded']) &&
+        $transaction->status  ==  COMMERCE_PAYMENT_STATUS_SUCCESS
+  	  );
+}
+
+/**
+  *  Implements  hook_views_api().
+  */
+function  commerce_oz_views_api()  {
+    return  array(
+        'api'  =>  3,
+        'path'  =>  drupal_get_path('module',  'commerce_oz')  .  '/includes/views',
+    );
+}
+
+/**
+  *  Implements  hook_action_info().
+  */
+function  commerce_oz_refund_action_info()  {
+    return  array(
+    
+        'commerce_oz_refund_transaction_action'  =>  array(
+            'type'  =>  'system',
+            'label'  =>  t('Refund  Transaction'),
+            'configurable'  =>  FALSE,
+            'hooks'  =>  array('any'  =>  TRUE),
+            'triggers'  =>  array('any'),
+            ),
+    );
+}
+
+
+
+
+/**
+  *  _commerce_oz_gateway_keys()
+  *  Returns  an  array  of  all  keys  used  for  the  payment  gateways
+  */
+function  _commerce_oz_gateway_keys()  {
+  
+   /* $keys  =  array('cba',  
+    							'anz',  
+    							'bendigo',  
+    							'suncorp',  
+    							'nab',  
+    							'bank_sa',  
+    							'st_george',  
+    							'payway',  
+    							'paymate',  
+    							'securepay',
+    							'paymentexpress',
+    							'eway',
+    							);
+		*/
+		$keys  =  array('cba',  					// migs
+    								'anz',    				// migs
+    								'nab',  
+    								'bank_sa', 
+    								'bendigo',				// migs 
+    								'suncorp',  			// migs
+    								'payway',  				// payway
+    								'st_george',  		// payway  
+    								'eway',						// eway
+    								'securepay',			// securepay
+    								'paymate',  			// paymate
+    								'paymentexpress',	// paymentexpress 
+    								'ematters',  			// ematters
+    								'poli',  					// poli
+    								'directone',  		// directone
+    							);
+	return  $keys;
+}
+
+
+
+/**
+  *  	commerce_oz_gateway_providers()
+  *		Return list of all gateway providers
+  */
+function  commerce_oz_gateway_providers()  {
+   
+  $gateway_providers  =  array();
+	
+	foreach(_commerce_oz_gateway_keys()  as  $key)
+	{
+		
+		module_load_include('inc',  'commerce_oz',  'includes/gateways/commerce_oz.'  .  $key);
+		$gateway_providers  =  $gateway_providers  +  call_user_func($key  .  '_gateway_provider_info');
+	}
+	
+	return  $gateway_providers;
+}
+
+
+/**
+  *  Implements  commerce_oz_load_gateway_provider().
+  */
+function  commerce_oz_load_gateway_provider($gateway_key)  {
+   
+  $gateway_providers  =  commerce_oz_gateway_providers();
+	
+	return  $gateway_providers[$gateway_key];
+}
+
+
+
+
+
+
+/**
+  *  Implements  commerce_payment_methods_info().
+  */
+function  commerce_oz_payment_methods_info()  {
+  
+  $payment_methods  =  array();
+  
+  $g_settings = _commweb_get_var(COMMERCE_OZ_GATEWAY_SETTINGS_VARIABLE);
+	$settings = _commweb_get_var(COMMERCE_OZ_PAYMENT_METHOD_SETTINGS_VARIABLE);
+	
+	//dsm($settings, '$settings');
+	//dsm($g_settings, '$g_settings');
+	
+	$gateways  =  _commerce_oz_gateway_keys();
+	
+	foreach($gateways  as  $key)
+	{
+	
+		if(!$g_settings[$key]){
+		
+		//	dsm($key, ' Off - ');
+			
+			$rules_config = rules_config_load('commerce_payment_' . $key);
+		//	dsm($rules_config, ' Rule - ');
+	//		$rules_config->active = FALSE;
+	//		$rules_config->delete();
+			
+			continue;
+		}
+		
+	///	dsm($g_settings[$key], ' On -');
+		
+		$payment_methods[$key]  =  call_user_func($key  .  '_payment_methods_info');
+		
+		foreach($payment_methods[$key] as $pm => $val){
+		
+	//		dsm($val, $pm);
+			
+				$rules_config = rules_config_load('commerce_payment_' . $pm);
+				$rules_config->active = ($settings[$pm] == $val['base']);
+				$rules_config->save();
+				
+	//		dsm($rules_config, ' Rule On - ');
+			
+			if($settings[$pm] == $val['base']){
+				
+				$payment_methods[$key][$pm]['active']  = TRUE;
+			
+			} else {
+				
+				//unset($payment_methods[$key][$pm]);
+				
+				$payment_methods[$key][$pm]['active']  = FALSE;
+				
+			//	dsm('commerce_payment_' . $payment_methods[$key][$pm]['base']);
+				
+
+				
+			
+			}
+		}
+		
+	}
+	
+//	dsm($payment_methods, '$payment_methods');
+	
+	return  $payment_methods;
+}
+
+/**
+  *  Implements  gateway_provider_info().
+  */
+function  commerce_oz_make_gateway_entity()  {
+
+  
+  
+  $gateways  =  _commerce_oz_gateway_keys();
+	
+	foreach(_commerce_oz_gateway_keys()  as  $key)
+	{
+		
+		module_load_include('inc',  'commerce_oz',  'includes/gateways/commerce_oz.'  .  $key);
+		$gateway_provider  =  call_user_func($key . '_gateway_provider_info');
+		
+	//	dsm($gateway_provider[$key]['title'], '$gateway_provider');
+		
+	  $entity = entity_create('gateway', array('type' =>'gateway'));
+	  $entity->title = $gateway_provider[$key]['title'];
+	 
+	 	$entity->field_owner = array(LANGUAGE_NONE => array(0 => array('value' => $gateway_provider[$key]['title'])));;
+	 	$entity->field_gateway_key = array(LANGUAGE_NONE => array(0 => array('value' => $gateway_provider[$key]['base'])));
+	 	
+	 	
+	  $entity->save();
+	//  dsm($entity, '$entity');
+	}
+
+}
+
+
+
+/**
+  *  Implements  hook_commerce_payment_method_info().
+  */
+function  commerce_oz_commerce_payment_method_info()  {
+  $payment_methods  =  array();
+	
+	$enabled_gateways  =  _commerce_oz_load_enabled_gateways();
+	
+//	echo nl2br(print_r($enabled_gateways, true));
+	
+	foreach($enabled_gateways  as  $gateway)  {
+	//	$payment_methods  =  $payment_methods + commerce_oz_load_gateway_payment_methods($gateway['base']);
+	$payment_methods  += (array)commerce_oz_load_gateway_payment_methods($gateway['base']);
+
+	}
+
+//	// dsm($payment_methods,  '$payment_methods');
+	
+    return  $payment_methods;
+}
+
+/*
+  *  commerce_oz_admin_init_settings($variable_name,  $initial_array)
+  *
+  *  Initialise  the  settings  arrays,  writes  them  to  db  and  reads  them  back.
+  */
+function  commerce_oz_admin_init_settings($variable_name,  $initial_array)
+{
+	
+	$settings_value  =  _commweb_get_var($variable_name);
+	
+	if(!$settings_value)  //  New  install
+	{
+		$settings  =    array_flip(array_keys($initial_array));
+
+		_commweb_set_var($variable_name,  $settings);
+		
+		$settings  =  _commweb_get_var($variable_name);
+		
+		foreach($settings  as  $key  =>  &$value)  
+		{
+			$value  =  0;
+		}
+		
+	}  else  {    //  Settings  exist
+		$settings  =  _commweb_get_var($variable_name);
+	}
+	
+	return  $settings;
+	
+}
+
+
+function  _commerce_oz_load_enabled_gateways()
+{
+  $enabled_gateways  =  array();
+	
+	$gateway_settings  =  commerce_oz_admin_init_settings(COMMERCE_OZ_GATEWAY_SETTINGS_VARIABLE,  commerce_oz_gateway_providers());
+	
+	foreach($gateway_settings  as  $key  =>  $value)  {
+		if($value)  {
+	    	$enabled_gateways[$value]  =  commerce_oz_load_gateway_provider($value);
+	    }
+	}
+	
+	return  $enabled_gateways;
+}
+
+
+/**
+  *  Payment  method  callback:  settings  form.
+  */
+function  commerce_oz_payment_settings_form($settings  =  NULL)  {
+
+    $form  =  array();
+	
+	$form  =  $form  +  anz_payment_method_settings_form();
+
+    return  $form;
+}
+
+
+
+/**
+  *  commerce_oz_load_gateway_payment_methods().
+  */
+function  commerce_oz_load_gateway_payment_methods($base)  {
+  
+  $payment_methods  =  array();
+	
+	$gateways  =  _commerce_oz_gateway_keys();
+	
+	foreach($gateways as $key)
+	{
+		module_load_include('inc',  'commerce_oz',  'includes/gateways/commerce_oz' . $key);
+		$payment_methods[$key]  =  call_user_func($key  .  '_payment_methods_info');
+	}
+	
+	//  // dsm($payment_methods,  'commerce_oz_load_gateway_payment_methods');
+	
+	return  $payment_methods[$base];
+}
+
+
+/**
+  *  	commerce_oz_all_payment_methods().
+  *		returns an array of all payment methods for all gateways
+  */
+function  commerce_oz_all_payment_methods()  {
+  
+  $payment_methods  =  array();
+	
+	$gateways  =  _commerce_oz_gateway_keys();
+	
+	foreach($gateways as $key => $value)
+	{
+		module_load_include('inc',  'commerce_oz',  'includes/gateways/commerce_oz.' . $value);
+		$payment_methods += (array)call_user_func($value  .  '_payment_methods_info');
+	}
+	
+	return  $payment_methods;
+}
+
+
+
+
+
+/**
+  *  	commerce_oz_load_payment_method_gateway().
+  *		returns the gateway for a payment method id
+  * 	used for finding gateway for an existing transaction/refund
+  */
+function  commerce_oz_load_payment_method_gateway($payment_method_id)  {
+  
+  $payment_methods = commerce_oz_all_payment_methods();
+	
+	dsm($payment_methods, '$payment_methods');
+	
+	$gateway_key = $payment_methods[$payment_method_id]['gateway_provider'];
+	
+	$gateway = commerce_oz_load_gateway_provider($gateway_key);
+
+	return  $gateway;
+}
+
+
+
+function  commerce_oz_gateway_provider_options()  {
+
+    $menu_options  =  array();
+	$gateways  =  commerce_oz_gateway_providers();
+	
+	foreach($gateways  as  $gateway)
+	{
+		$menu_options[$gateway['base']]  =  $gateway['owner']  .  '  ('  .  $gateway['short_title']  .  ')';
+	}
+
+	return  $menu_options;
+
+}
+
+
+function  commerce_oz_logo($size  =  '_70')
+{
+
+	$path  =  '/'  .  drupal_get_path('module',  'commerce_oz')  .  '/image/commerce_oz'  .  $size  .  '.png';
+	return  $path;
+}
+
+function  commerce_oz_gateway_logo($target  =  'cba',  $size  =  '_70')
+{
+
+	$path  =  '/'  .  drupal_get_path('module',  'commerce_oz')  .  '/image/'  .  $target  .  $size  .  '.png';
+	return  $path;
+}
+
+
+//  Make  sure  the  right  values  get  written
+//  Values  get  serialised  before  encryption  &  unserialised  after  decryption
+//  This  allows  arrays  and  objects  to  be  passed  in/out  without  problems
+
+function  _commweb_get_var($name)
+{
+	$value  =  variable_get($name);
+	if($value)
+	{
+		return  unserialize(decrypt($value,  array('base64'  =>  TRUE)));
+	}  else  {
+		return  FALSE;
+	}
+}
+
+
+
+function  _commweb_set_var($name,  $value)
+{
+	$value  =  encrypt(serialize($value),  array('base64'  =>  TRUE));
+	variable_set($name,  $value);
+}
+
+
+function  _commerce_oz_open_transaction($payment_method,  $order_id)  {
+	//  Transaction  record
+	//  Prepare  a  transaction  object  to  log  the  API  response.
+    $transaction  =  commerce_payment_transaction_new($payment_method,  $order_id);
+    
+        //  Save  the  transaction  information  for  a  fresh  transaction  id.
+    commerce_payment_transaction_save($transaction);
+    
+    return  $transaction;
+}
+
+function  _commerce_oz_close_transaction($transaction,  $request_map,  $response_map)  {
+
+	//  Update  the  transaction  object
+    $transaction->instance_id  =  'commerce_commweb|commerce_payment_commerce_commweb';
+    $transaction->amount  =  $response_map['vpc_Amount'];
+    $transaction->currency_code  =  'AUD';
+    $transaction->payload  =  array('request'  =>  $request_map,  'response'  =>  $response_map);
+    
+    $transaction->remote_id  =  $response_map['vpc_TransactionNo'];        
+    $transaction->remote_status  =  $response_map['vpc_TxnResponseCode'];    
+    
+    $transaction->status  =  $response_map['vpc_TxnResponseCode']  ?  COMMERCE_PAYMENT_STATUS_FAILURE  :  COMMERCE_PAYMENT_STATUS_SUCCESS;
+    
+    $transaction->message  =  $test_message  .  t('Purchase  Code:  @code  -  @message');  
+    
+    $transaction_message  =    $response_map['vpc_Message'];
+    
+    if($response_map['vpc_TxnResponseCode'])
+    {
+    	$transaction_message  .=  '  -  Failed  Card:  '  .  _commweb_map_code_to_cardtype($response_map['vpc_Card'])  .  ':  '  .  $request_map['vpc_CardNum'];
+    }  
+    
+    $transaction->message_variables  =  array(
+    	'@code'  =>  $response_map['vpc_TxnResponseCode'],
+    	'@message'  =>  $transaction_message,
+    		);
+    return  $response_map;			
+}
+
+
+function  _commerce_oz_debug_transaction($transaction,  $request_map,  $response_map,  $debug_mode  =  TRUE)  {
+		//  Debug  information
+    if($debug_mode)
+    {
+    
+   // 	dsm($request_map);
+    	watchdog(	'commerce_oz',  
+    						'Request  Data  was:  @requestdata',  
+    						array('@requestdata'  =>  print_r($request_map,  true)),    
+    						WATCHDOG_DEBUG);
+    
+	//	dsm($response_map);
+    	watchdog(	'commerce_oz',  
+    						'Response  Map:  @returndata',  
+    						array('@returndata'  =>  print_r($response_map,  true)),  
+    						WATCHDOG_DEBUG);
+    }
+
+}
+
+
+function commerce_oz_update_refund_transaction_messages($refund_message, $refund_transaction, $original_transaction) {
+
+
+  $refund_transaction->message = '<strong>Refund</strong> Code: @code - @message<br />Order ID: <a href="/admin/commerce/orders/@order_id">@order_id</a><br />Original Transaction: <a href="/admin/commerce/orders/@order_id/payment/@trans_id/view">@trans_id</a>'; 
+
+  $refund_transaction->message_variables = array(
+					  	'@code' => $refund_transaction->status,
+					  	'@message' => $refund_message,
+					  	'@trans_id' => $original_transaction->transaction_id,
+					  	'@order_id' => $original_transaction->order_id,
+  		);
+  				
+  // Save the refund transaction information.
+  commerce_payment_transaction_save($transaction);		
+  
+  // Update the original transaction
+  $original_transaction->message = '<strong>Purchase</strong> Code: @code - @message<br />'; 
+  $original_transaction->message .= '<strong>Refunded</strong> Code: @refcode - @refmessage<br />';
+  $original_transaction->message .= 'Refund Transaction: <a href="/admin/commerce/orders/@reforder_id/payment/@reftrans_id/view">@reftrans_id</a>';
+
+  $original_transaction->message_variables = array(
+			  			'@code' => $original_transaction->message_variables['@code'],
+			  			'@message' => $original_transaction->message_variables['@message'],
+			  			'@refcode' => $transaction->message_variables['@code'],
+			  			'@refmessage' => $transaction->message_variables['@message'],
+			  			'@reforder_id' => $original_transaction->order_id,
+			  			'@reftrans_id' => $transaction->transaction_id,
+  		);
+ 
+  // Save the original transaction information.
+  commerce_payment_transaction_save($original_transaction);		
+  
+}
+
+
+
+
+
+
+
+
+
+function  _commerce_oz_handle_payment_response($transaction,  $request_map,  $response_map)  {
+
+  //  If  the  payment  failed,  display  an  error  and  rebuild  the  form.
+    if  ($transaction->status  ===  COMMERCE_PAYMENT_STATUS_FAILURE)  
+    {
+    
+        drupal_set_message(t('There  was  an  error  processing  your  card.  <br  />Check  your  information  or  try  a  different  card.'),  'error');
+        
+        drupal_set_message('Response:  '  .  $transaction->remote_status  .  '  -  Message:  "'  .  $transaction->message  .  '"',  'error');
+        
+        watchdog('commerce_oz',  
+        					'Failed  Transaction ID:<b>@trans_id</b> @request_map @response_map',  
+        					array('@trans_id' => $transaction->transaction_id,
+        								'@request_map'  =>  print_r($request_map, true),
+        								'@response_map'  =>  print_r($response_map, true),
+        								),  WATCHDOG_WARNING);
+        
+        
+        
+        	//  Fire  failure  Rule
+      rules_invoke_event('commerce_oz_transaction_fail',  $transaction);
+        
+        return  FALSE;
+        
+    }  else  {  //  Success
+    
+    	//  Fire  success  Rule
+    	rules_invoke_event('commerce_oz_transaction_success',  $transaction);
+    	
+    	return  TRUE;
+    
+    }
+}
+
+
+
+
+
+/**
+ * @param $cc
+ *   	Credit card number string
+ *
+ * @return
+ *   	Obfuscated credit card number for watchdog
+ *   	Contains 1st two and last 4 digits
+ *		e.g. 51xx xxxx xxxx 1234
+ */
+
+function _commerce_commweb_build_safe_cc_string($cc) {
+
+  // Assumes the cc number is 16 or less chars
+  // Keep the first 2 digits to identify card type
+  $str = substr($cc, 0, 2) . 'xx xxxx xxxx ' . substr($cc, -4);
+  return $str;
+
+}
+
+/**
+ * @param $merchant
+ *   	Merchant ID string
+ *
+ * @return
+ *   	Obfuscated merchant for watchdog
+ *   	Contains 1st five and last 3 digits
+ *		e.g. TESTLxxxxxxxxZ01
+ */
+
+function _commweb_build_merchant_string($merchant) {
+
+  $str = substr($merchant, 0, 5) . 'xxxxxxxxxx' . substr($merchant, -2);
+  return $str;
+
+}
+
+/**
+ * @param $username
+ *   	Merchant ID string
+ *
+ * @return
+ *   	Obfuscated merchant for watchdog
+ *   	Contains 1st 3 and last 3 digits
+ *		e.g. TESTLxxxxxxxxZ01
+ */
+
+function _commweb_build_refund_user_string($username) {
+
+  $str = substr($username, 0, 3) . 'xxxxxx' . substr($username, -2);
+  return $str;
+
+}
+
+/**
+ * @param $username
+ *   	Merchant ID string
+ *
+ * @return
+ *   	Obfuscated merchant for watchdog
+ *   	Contains 1st 3 and last 3 digits
+ *		e.g. TESTLxxxxxxxxZ01
+ */
+
+function _commweb_build_refund_user_password_string($password) {
+
+  $str = substr($password, 0, 3) . 'xxxxxxxxxx' . substr($password, -2);
+  return $str;
+
+}
+
+
+
+
+/**
+ * @param $code
+ *   	Access Code string
+ *
+ * @return
+ *   	Obfuscated merchant access code for watchdog
+ *   	Contains 1st two and last 3 digits
+ *		e.g. 65xxxxxxx631
+ */
+
+
+function _commweb_build_accesscode_string($code) {
+
+  $str = substr($code, 0, 2) . 'xxxxxxx' . substr($code, -3);
+  return $str;
+
+}
+
+
+function _commweb_map_code_to_cardtype($code)
+{
+	if($code == 'MC') return 'Mastercard';
+	if($code == 'VC') return 'Visa card';
+	if($code == 'DC') return 'Diners Club';
+	if($code == 'AM') return 'AMEX';
+	return $code;
+}
+
+
+function _commerce_oz_array2xml($array, $root = '<root/>', $xml = false){
+    if($xml === false){
+        $xml = new SimpleXMLElement($root);
+    }
+    foreach($array as $key => $value){
+        if(is_array($value)){
+            _commerce_oz_array2xml($value, $xml->addChild($key));
+        }else{
+           // $xml->addChild($key, urlencode($value));
+           $xml->addChild($key, $value);
+        }
+    }
+    return $xml->asXML();
+}

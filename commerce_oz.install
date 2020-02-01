@@ -1,0 +1,58 @@
+<?php
+
+/**
+ * Performs database updates and uninstallation cleanup for the Commerce Oz module.
+ */
+
+
+/**
+ * Implements hook_install().
+ */
+function commerce_oz_install() {
+
+}
+
+/**
+ * Implements hook_uninstall().
+ */
+function commerce_oz_uninstall() {
+  variable_del('commerce_oz_gateway_settings');
+  variable_del('commerce_oz_payment_method_settings');
+}
+
+/**
+ * Implements hook_requirements().
+ */
+ 
+function commerce_oz_requirements($phase) {
+  $t = get_t();
+	
+	$requirements = array();
+	
+  // Is curl there?
+  $has_curl = function_exists('curl_init');
+  $requirements['curl'] = array(
+    'title' => $t('cURL'),
+    'value' => $has_curl ? $t('Enabled') : $t('Not found'),
+  );
+  
+  if (!$has_curl) {
+    $requirements['curl']['severity'] = REQUIREMENT_ERROR;
+    $requirements['curl']['description'] = $t("Commerce Oz requires the PHP <a href='!curl_url'>cURL</a> library.", array('!curl_url' => 'http://php.net/manual/en/curl.setup.php'));
+  }
+
+	if($phase == 'runtime') {
+	
+		$requirements['commerce_oz'] = array(
+      	'severity' => REQUIREMENT_INFO,
+      	'title' => t('Commerce Oz'),
+      	'value' => t('Version' . ' 1.0.0'),
+      	'description' => t('Your Commerce Oz configuration seems to be normal.'),
+    	);
+	
+	}
+
+
+  return $requirements;
+} 
+

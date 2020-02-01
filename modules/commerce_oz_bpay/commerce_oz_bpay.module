@@ -1,0 +1,27 @@
+<?php
+
+/**
+ * @file
+ * Implements BPAY for use in Drupal Commerce.
+ */
+
+/**
+ * Implements hook_menu().
+ */
+function commerce_oz_bpay_menu() {
+
+ $items['admin/commerce/config/commerce_oz/settings/bpay_settings'] = array(
+
+    'title' => t('BPAY settings'),
+    'description' => t('BPAY for Drupal Commerce settings'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('commerce_oz_bpay_admin_settings'),
+    'access arguments' => array('administer commerce_oz'),
+    'file' => 'commerce_oz_bpay.admin.inc',
+    'type' => MENU_NORMAL_ITEM,
+
+  );
+
+  
+  return $items;
+}

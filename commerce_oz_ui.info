@@ -1,0 +1,11 @@
+name = Commerce Oz UI
+description = UI Module for Commerce Oz.
+package = Commerce Oz
+dependencies[] = commerce_oz
+core = 7.x
+configure = admin/commerce/config/commerce_oz/settings
+
+; Base module files
+files[] = commerce_oz_ui.module
+
+

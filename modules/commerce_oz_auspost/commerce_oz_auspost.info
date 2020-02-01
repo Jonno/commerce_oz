@@ -1,0 +1,9 @@
+name = Aus Post Shipping Method
+description = Provides an Australia Post shipping method.
+package = Commerce Oz
+dependencies[] = commerce
+dependencies[] = commerce_shipping
+core = 7.x
+
+
+

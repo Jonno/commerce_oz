@@ -1,0 +1,175 @@
+<?php
+
+/**
+ * @file
+ * Implements Commerce Oz UI for admin.
+ */
+
+
+/**
+ * Implements hook_menu().
+ */
+function commerce_oz_ui_menu() {
+
+	$items = array();
+	
+	$items['admin/commerce/config/commerce_oz'] = array(
+		'title' => 'Commerce Oz',
+		'description' => 'Configure Commerce Oz',
+		'page callback' => 'drupal_get_form',
+		'page arguments' => array('commerce_oz_admin_settings'),
+		'access callback' => 'user_access',
+	 	'access arguments' => array('administer commerce_oz'),
+		'file' => 'includes/commerce_oz.admin.inc',
+	);
+
+
+	$items['admin/commerce/config/commerce_oz/commerce_oz_refunds'] = array(
+	
+	 	'title' => t('Refunds'),
+	 	'description' => t('Commerce Oz Refund Manager'),
+	 	'page callback' => 'commerce_oz_refund_get_transaction_view',
+		'access callback' => 'user_access',
+	 	'access arguments' => array('administer commerce_oz'),
+	 	'file' => 'includes/commerce_oz.refund.admin.inc',
+	 	'type' => MENU_LOCAL_TASK ,
+	 	'weight' => -20,
+	);
+
+
+// Gateway settings
+
+ $items['admin/commerce/config/commerce_oz/gateways'] = array(
+
+    'title' => t('Gateways'),
+    'description' => t('Commerce Oz Gateway settings'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('commerce_oz_admin_settings'),
+    'access arguments' => array('administer commerce_oz'),
+    'file' => 'includes/commerce_oz.admin.inc',
+
+  );
+
+
+
+/* Load global settings pages for each enabled gateway */
+		
+	$enabled_gateways = _commerce_oz_load_enabled_gateways();
+	
+	// dsm($enabled_gateways);
+	
+	foreach($enabled_gateways as $gateway) {
+		 $items['admin/commerce/config/commerce_oz/gateways/' . $gateway['base']] = array(
+
+	    'title' => $gateway['title'],
+	    'description' => $gateway['title'] . t(' settings'),
+	    'page callback' => 'drupal_get_form',
+	    'page arguments' => array('commerce_oz_' . $gateway['base'] . '_admin_settings'),
+	    'access arguments' => array('administer commerce_oz'),
+	    'file' => 'includes/gateways/commerce_oz.' . $gateway['base'] . '.admin.inc',
+	 //   'type' => MENU_CALLBACK,
+    	'weight' => -20,
+	  );
+	}
+
+
+ return $items;
+ 
+}
+ 
+ 
+ 
+ 
+ /*
+
+ $items['admin/config/commerce_oz'] = array(
+
+    'title' => t('Commerce Oz'),
+    'description' => t('Commerce Oz Gateway settings'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('commerce_oz_admin_settings'),
+    'access arguments' => array(true), // array('administer commerce_oz'),
+    'file' => 'commerce_oz.admin.inc',
+    'type' => MENU_NORMAL_ITEM,
+
+  );
+
+// Commerce Oz settings
+ $items['admin/config/commerce_oz/settings'] = array(
+
+ 'title' => COMMERCE_OZ_PRODUCT_NAME . t(' settings'),
+    'description' => t('Commerce Oz for Drupal settings'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('commerce_oz_admin_settings'),
+    'access arguments' => true, // array('administer commerce_oz'),
+    'file' => 'commerce_oz.admin.inc',
+    'type' => MENU_NORMAL_ITEM,
+
+  );
+
+
+
+	
+ // Refund Manager
+	 $items['admin/commerce/orders/commerce_oz/commerce_oz_refund_transactions'] = array(
+
+    'title' => t('Refund Manager'),
+    'description' => t('Commerce Oz Refund Manager'),
+    'page callback' => 'commerce_oz_refund_get_transaction_view',
+				'access callback' => 'user_access',
+    'access arguments' => array('administer commerce_oz', 'refund commerce_oz'),
+    'file' => 'includes/commerce_oz.refund.admin.inc',
+    'type' => MENU_NORMAL_ITEM,
+
+  );
+  
+
+
+	
+		// Load global settings pages for each enabled gateway
+	$enabled_gateways = _commerce_oz_load_enabled_gateways();
+
+	foreach($enabled_gateways as $gateway) {
+		 $items['admin/commerce/config/commerce_oz/settings/gateways/' . $gateway['base']] = array(
+
+	    'title' => $gateway['title'],
+	    'description' => $gateway['title'] . t(' settings'),
+	    'page callback' => 'drupal_get_form',
+	    'page arguments' => array('commerce_oz_' . $gateway['base'] . '_admin_settings'),
+	    'access arguments' => array('administer commerce_oz'),
+	    'file' => 'includes/gateways/commerce_oz.' . $gateway['base'] . '.admin.inc',
+	    'type' => MENU_NORMAL_ITEM,
+    	'weight' => -20,
+	  );
+	}
+	*/
+	
+
+/**
+  *  Implements  hook_menu_contextual_links_alter().
+  *
+  *  Remove  the  reverse  link  from  the  transaction  operations  if  the  transaction
+  *  can  not  be  reversed.
+  */
+function  commerce_oz_menu_contextual_links_alter(&$links,  $router_item,  $root_path)  {
+	//// dsm($links,  '$links');
+    if  (isset($links['commerce-payment-transaction-refund']))  {
+        if  (!commerce_oz_transaction_refundable($router_item['page_arguments'][1]))  {
+            unset($links['commerce-payment-transaction-refund']);
+        }
+    }
+}
+
+function commerce_oz_refund_get_transaction_view() {
+  $viewname = 'commweb_refund_transactions'; // use the machine name of the view
+  $viewdisplay = 'page'; // use the machine readable name of the display or 'default'
+  return views_embed_view($viewname, $viewdisplay);
+}
+
+function commerce_oz_refund_get_refunded_transactions_view() {
+  $viewname = 'commweb_refund_transactions'; // use the machine name of the view
+  $viewdisplay = 'page_1'; // use the machine readable name of the display or 'default'
+  return views_embed_view($viewname, $viewdisplay);
+}
+
+
